@@ -1,65 +1,122 @@
-// File:    Stratego Move Class
-// Devs:    Nathan W. Barros;
-// Origin:  2026-10-30 14:41:21
-// Edited:  2026-10-30 14:41:24
+import java.util.Arrays;
 
-class Move {
-                                                                                                                                                              
-    public final int   ROW_COUNT      = 10;
-    public final int   COLUMN_COUNT   = 10;
-    public final int   CELL_COUNT     = 100;
-    public final int[] INACTIVE_CELLS = [42, 43, 46, 47, 52, 53, 56, 57];
+/**
+ * Rules and board helpers shared by the Stratego model and GUI.
+ *
+ * Board cells are numbered left-to-right, top-to-bottom. A lake is -2,
+ * an empty land cell is 0, and pieces use the values documented in TODO.md.
+ */
+public final class Move {
+    public static final int ROW_COUNT = 10;
+    public static final int COLUMN_COUNT = 10;
+    public static final int CELL_COUNT = ROW_COUNT * COLUMN_COUNT;
+    public static final int LAKE = -2;
 
-    public final enum CELL_TYPE {
-        EMPTY(0),
-        SPY(1),
-        SCOUT(2),
-        MINER(3),
-        SERGENT(4),
-        LIEUTENANT(5),
-        CAPTAIN(6),
-        MAJOR(7),
-        COLONEL()
-        BOMB(-1),
+    public static final int EMPTY = 0;
+    public static final int SPY = 1;
+    public static final int SCOUT = 2;
+    public static final int MINER = 3;
+    public static final int SERGEANT = 4;
+    public static final int LIEUTENANT = 5;
+    public static final int CAPTAIN = 6;
+    public static final int MAJOR = 7;
+    public static final int COLONEL = 8;
+    public static final int GENERAL = 9;
+    public static final int MARSHAL = 10;
+    public static final int BOMB = 11;
+    public static final int FLAG = 12;
 
-        private final int value;
+    public static final int[] INACTIVE_CELLS = {42, 43, 46, 47, 52, 53, 56, 57};
 
-        CELL_TYPE(int value) {
-            this.value = value;
-        }
-
-        public int getValue() {
-            return value;
-        }
+    private Move() {
     }
 
-    public static int[] playMove(int startCell, int endCell, int[] gameBoard) throws IllegalArgumentException {
+    public static boolean isValidCell(int cell) {
+        return cell >= 0 && cell < CELL_COUNT;
+    }
 
-        // Check arguments
-        if (startCell == endCell) {
-            throw IllegalArgumentException("WARNING> startCell cannot equal endCell!");
-        } else if (startCell < 0 || startCell > CELL_COUNT) {
-            return IllegalArgumentException("WARNING> startCell is less than 0 or greater than Move.CELL_COUNT!");
-        } else if (endCell < 0 || endCell > CELL_COUNT) {
-            return IllegalArgumentException("WARNING> endCell is less than 0 or greater than Move.CELL_COUNT!");
+    public static boolean isLandCell(int cell) {
+        if (!isValidCell(cell)) {
+            return false;
         }
+        int row = cell / COLUMN_COUNT;
+        int column = cell % COLUMN_COUNT;
+        return !(row == 4 || row == 5)
+                || ((column < 2 || column > 3) && (column < 6 || column > 7));
+    }
 
-        // get pieces on cell
-        int piece1 = gameBoard[startCell];
-        int piece2 = gameBoard[endCell];
+    public static boolean isPlayablePiece(int piece) {
+        return piece >= SPY && piece <= FLAG;
+    }
 
-        // Check cells
-        if (piece1 == Pieces.type.EMPTY) {
+    public static boolean canMovePiece(int piece) {
+        return isPlayablePiece(piece) && piece != BOMB && piece != FLAG;
+    }
 
+    public static boolean isOrthogonalStep(int startCell, int endCell) {
+        if (!isValidCell(startCell) || !isValidCell(endCell)) {
+            return false;
         }
+        int rowDistance = Math.abs(startCell / COLUMN_COUNT - endCell / COLUMN_COUNT);
+        int columnDistance = Math.abs(startCell % COLUMN_COUNT - endCell % COLUMN_COUNT);
+        return rowDistance + columnDistance == 1;
+    }
 
-        // Check to see if start cell is empty
+    public static boolean isLegalMove(int startCell, int endCell, int[] gameBoard) {
+        if (gameBoard == null || gameBoard.length != CELL_COUNT
+                || !isValidCell(startCell) || !isValidCell(endCell)
+                || !isLandCell(startCell) || !isLandCell(endCell)
+                || !canMovePiece(gameBoard[startCell])
+                || !isOrthogonalStep(startCell, endCell)) {
+            return false;
+        }
+        return gameBoard[endCell] == EMPTY || isPlayablePiece(gameBoard[endCell]);
+    }
 
+    /**
+     * Applies a non-combat move in place and returns the same board.
+     */
+    public static int[] playMove(int startCell, int endCell, int[] gameBoard) {
+        if (!isLegalMove(startCell, endCell, gameBoard)) {
+            throw new IllegalArgumentException("Illegal Stratego move");
+        }
+        if (gameBoard[endCell] != EMPTY) {
+            throw new IllegalArgumentException("Combat must be resolved before moving onto an occupied cell");
+        }
+        gameBoard[endCell] = gameBoard[startCell];
+        gameBoard[startCell] = EMPTY;
         return gameBoard;
     }
 
+    /**
+     * Returns 1 when the attacker wins, -1 when the defender wins, and 0 for
+     * a mutual elimination.
+     */
+    public static int resolveBattle(int attacker, int defender) {
+        if (!isPlayablePiece(attacker) || !isPlayablePiece(defender)) {
+            throw new IllegalArgumentException("Battle requires two pieces");
+        }
+        if (defender == FLAG) {
+            return 1;
+        }
+        if (defender == BOMB) {
+            return attacker == MINER ? 1 : -1;
+        }
+        if (attacker == SPY && defender == MARSHAL) {
+            return 1;
+        }
+        if (attacker == defender) {
+            return 0;
+        }
+        return attacker > defender ? 1 : -1;
+    }
 
-
+    public static int[] copyBoard(int[] gameBoard) {
+        if (gameBoard == null || gameBoard.length != CELL_COUNT) {
+            throw new IllegalArgumentException("A Stratego board must contain 100 cells");
+        }
+        return Arrays.copyOf(gameBoard, gameBoard.length);
+    }
 }
 
-// EOF  
+// EOF
