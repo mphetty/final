@@ -263,24 +263,19 @@ public final class Gui extends Application {
     }
 
     private String displayPiece(int piece, boolean visible) {
-        return visible ? abbreviation(piece) : "?";
+        return visible ? rankLabel(piece) : "?";
     }
 
-    private String abbreviation(int piece) {
+    /**
+     * Ranks read as numbers: 1 spy up to 10 marshal. Bombs and the flag are
+     * not ranked, so they keep single letters.
+     */
+    private String rankLabel(int piece) {
         return switch (piece) {
-            case Move.SPY -> "S";
-            case Move.SCOUT -> "Sc";
-            case Move.MINER -> "Mi";
-            case Move.SERGEANT -> "Se";
-            case Move.LIEUTENANT -> "L";
-            case Move.CAPTAIN -> "C";
-            case Move.MAJOR -> "Ma";
-            case Move.COLONEL -> "Co";
-            case Move.GENERAL -> "G";
-            case Move.MARSHAL -> "M";
+            case Move.EMPTY -> "";
             case Move.BOMB -> "B";
             case Move.FLAG -> "F";
-            default -> "";
+            default -> Integer.toString(piece);
         };
     }
 

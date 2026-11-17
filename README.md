@@ -9,6 +9,9 @@ of the earlier demo position.
   shuffled one. Flag and bombs stay in the back row, bombs stay off the front row.
 - Turn-based play. Only the side to move can select a piece; the opponent's
   ranks stay hidden (the "Reveal ranks" box shows them for testing).
+- Ranks are drawn as numbers, 1 (spy) through 10 (marshal), so a comparison is
+  readable at a glance; bombs and the flag show `B` and `F` because they have no
+  rank. Hidden pieces show `?`.
 - Legal-destination highlighting. Scouts travel any distance along a row or
   column through empty land and may attack at range; every other piece steps one
   square. Lakes block movement and attacks.
