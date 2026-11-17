@@ -1,3 +1,5 @@
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -11,6 +13,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 /**
  * Interactive 10x10 Stratego board.
@@ -23,6 +26,7 @@ import javafx.stage.Stage;
  */
 public final class Gui extends Application {
     private static final int CELL_SIZE = 68;
+    private static final int HANDOVER_SECONDS = 5;
     private static final String BOARD_BACKGROUND = "#17324d";
     private static final String EMPTY_CELL = "#d8e7f2";
     private static final String PLAYER_CELL = "#2f80c0";
@@ -43,6 +47,9 @@ public final class Gui extends Application {
     private int selectedCell = -1;
     private int[] destinations = new int[0];
     private boolean revealRanks;
+    private boolean handover;
+    private int handoverRemaining;
+    private Timeline handoverTimer;
 
     public Gui() {
     }
@@ -111,6 +118,7 @@ public final class Gui extends Application {
         root.setBottom(footer);
         root.setStyle("-fx-background-color: #f5f7fa;");
 
+        status.setText(Game.sideName(game.turn()) + " moves first.");
         refreshBoard();
         Scene scene = new Scene(root, 820, 900);
         stage.setTitle("Stratego");
@@ -125,6 +133,7 @@ public final class Gui extends Application {
         if (game == null) {
             throw new IllegalArgumentException("A game is required");
         }
+        cancelHandover();
         this.game = game;
         selectedCell = -1;
         destinations = new int[0];
@@ -138,6 +147,11 @@ public final class Gui extends Application {
 
     private void handleCellClick(int cell) {
         if (game == null || game.isOver()) {
+            return;
+        }
+        if (handover) {
+            status.setText("Pass the device. " + Game.sideName(game.turn())
+                    + " moves in " + handoverRemaining + "s.");
             return;
         }
         if (!Move.isLandCell(cell)) {
@@ -188,7 +202,45 @@ public final class Gui extends Application {
         if (game.isOver()) {
             status.setText(Game.sideName(game.winner()) + " wins after "
                     + game.moveCount() + " moves.");
+        } else {
+            startHandover();
         }
+    }
+
+    /**
+     * Hidden hand-over window between turns: every rank is masked for a few
+     * seconds so the player who just moved cannot read the next player's pieces.
+     */
+    private void startHandover() {
+        cancelHandover();
+        handover = true;
+        handoverRemaining = HANDOVER_SECONDS;
+        selectedCell = -1;
+        destinations = new int[0];
+        status.setText(status.getText() + " Pass the device.");
+
+        handoverTimer = new Timeline(new KeyFrame(Duration.seconds(1), event -> {
+            handoverRemaining--;
+            refreshBoard();
+        }));
+        handoverTimer.setCycleCount(HANDOVER_SECONDS);
+        handoverTimer.setOnFinished(event -> {
+            handover = false;
+            handoverTimer = null;
+            status.setText(Game.sideName(game.turn()) + " to move.");
+            refreshBoard();
+        });
+        handoverTimer.play();
+        refreshBoard();
+    }
+
+    private void cancelHandover() {
+        if (handoverTimer != null) {
+            handoverTimer.stop();
+            handoverTimer = null;
+        }
+        handover = false;
+        handoverRemaining = 0;
     }
 
     private String describe(Game.MoveOutcome outcome) {
@@ -240,6 +292,12 @@ public final class Gui extends Application {
             }
         }
 
+        if (handover) {
+            turnLabel.setText("Pass to " + Game.sideName(game.turn())
+                    + " — " + handoverRemaining + "s");
+            turnLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #36566e;");
+            return;
+        }
         if (game.isOver()) {
             turnLabel.setText(Game.sideName(game.winner()) + " wins");
             turnLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: "
@@ -252,7 +310,7 @@ public final class Gui extends Application {
     }
 
     private boolean isVisible(int owner) {
-        return revealRanks || game.isOver() || owner == game.turn();
+        return !handover && (revealRanks || game.isOver() || owner == game.turn());
     }
 
     private String backgroundFor(int owner) {

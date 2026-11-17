@@ -12,6 +12,10 @@ of the earlier demo position.
 - Ranks are drawn as numbers, 1 (spy) through 10 (marshal), so a comparison is
   readable at a glance; bombs and the flag show `B` and `F` because they have no
   rank. Hidden pieces show `?`.
+- A 5-second hand-over window after every move masks every rank, so the player
+  who just moved cannot read the next player's pieces while the device changes
+  hands. The header counts down (`Pass to Red — 4s`), clicks are ignored until
+  the countdown ends, and "New game" cancels it.
 - Legal-destination highlighting. Scouts travel any distance along a row or
   column through empty land and may attack at range; every other piece steps one
   square. Lakes block movement and attacks.
