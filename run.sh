@@ -19,6 +19,7 @@ javac \
     --module-path "$JAVAFX_LIB" \
     --add-modules javafx.controls \
     -d "$BUILD_DIR" \
+    "$ROOT_DIR/Game.java" \
     "$ROOT_DIR/Gui.java" \
     "$ROOT_DIR/Move.java" \
     "$ROOT_DIR/Player.java" \
