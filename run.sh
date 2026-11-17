@@ -23,6 +23,7 @@ javac \
     "$ROOT_DIR/Gui.java" \
     "$ROOT_DIR/Move.java" \
     "$ROOT_DIR/Player.java" \
+    "$ROOT_DIR/Setup.java" \
     "$ROOT_DIR/Stratego.java"
 
 exec java \

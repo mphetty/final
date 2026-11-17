@@ -18,11 +18,15 @@ import javafx.util.Duration;
 /**
  * Interactive 10x10 Stratego board.
  *
- * The view owns no rules: it asks {@link Game} which pieces the side to move
- * may select, which destinations are legal, and applies moves through
- * {@link Game#playMove(int, int)}. Blue plays the bottom rows, red the top
- * rows, and the side that is not moving has its ranks hidden unless the
- * reveal box is ticked.
+ * Two phases share one window. Setup: each side arranges its own 40 pieces on
+ * its four home rows by clicking two of its squares to swap them, with a
+ * randomize button for a fresh army. Play: the view owns no rules, it asks
+ * {@link Game} which pieces the side to move may select, which destinations are
+ * legal, and applies moves through {@link Game#playMove(int, int)}.
+ *
+ * Every change of hands is followed by a five-second blackout in which all
+ * ranks are masked, so the player who just acted cannot read the next player's
+ * pieces while the device is passed over.
  */
 public final class Gui extends Application {
     private static final int CELL_SIZE = 68;
@@ -40,30 +44,36 @@ public final class Gui extends Application {
         "Captain", "Major", "Colonel", "General", "Marshal", "Bomb", "Flag"
     };
 
+    private enum Phase {
+        SETUP,
+        PLAY
+    }
+
     private final Button[] cellButtons = new Button[Move.CELL_COUNT];
     private final Label status = new Label();
     private final Label turnLabel = new Label();
+    private final Button randomizeButton = new Button("Randomize");
+    private final Button readyButton = new Button("Ready");
+    private final java.util.Random random = new java.util.Random();
+
     private Game game;
+    private Setup blueSetup;
+    private Setup redSetup;
+    private Setup setup;
+    private Phase phase;
     private int selectedCell = -1;
     private int[] destinations = new int[0];
     private boolean revealRanks;
-    private boolean handover;
-    private int handoverRemaining;
-    private Timeline handoverTimer;
+    private boolean blackout;
+    private int blackoutRemaining;
+    private String blackoutMessage = "";
+    private Timeline blackoutTimer;
 
     public Gui() {
     }
 
-    public Gui(Game game) {
-        this.game = game;
-    }
-
     @Override
     public void start(Stage stage) {
-        if (game == null) {
-            game = Stratego.newGame();
-        }
-
         GridPane grid = new GridPane();
         grid.setAlignment(Pos.CENTER);
         grid.setHgap(3);
@@ -82,7 +92,10 @@ public final class Gui extends Application {
         }
 
         Button newGameButton = new Button("New game");
-        newGameButton.setOnAction(event -> setGame(Stratego.newGame()));
+        newGameButton.setOnAction(event -> beginMatch());
+
+        randomizeButton.setOnAction(event -> randomizeSetup());
+        readyButton.setOnAction(event -> finishSetup());
 
         CheckBox revealBox = new CheckBox("Reveal ranks");
         revealBox.setOnAction(event -> {
@@ -90,14 +103,14 @@ public final class Gui extends Application {
             refreshBoard();
         });
 
-        HBox controls = new HBox(10, newGameButton, revealBox);
+        HBox controls = new HBox(10, newGameButton, randomizeButton, readyButton, revealBox);
         controls.setAlignment(Pos.CENTER);
 
         Label title = new Label("STRATEGO");
         title.setStyle("-fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: #17324d;");
 
         Label instructions = new Label(
-                "Click one of your pieces, then a green square. Scouts move any distance in a straight line.");
+                "Setup: click two of your squares to swap them. Play: click a piece, then a green square.");
         instructions.setStyle("-fx-text-fill: #36566e;");
 
         turnLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
@@ -118,8 +131,7 @@ public final class Gui extends Application {
         root.setBottom(footer);
         root.setStyle("-fx-background-color: #f5f7fa;");
 
-        status.setText(Game.sideName(game.turn()) + " moves first.");
-        refreshBoard();
+        beginMatch();
         Scene scene = new Scene(root, 820, 900);
         stage.setTitle("Stratego");
         stage.setScene(scene);
@@ -128,33 +140,110 @@ public final class Gui extends Application {
         stage.show();
     }
 
-    /** Replaces the running game and redraws the board. */
-    public void setGame(Game game) {
-        if (game == null) {
-            throw new IllegalArgumentException("A game is required");
-        }
-        cancelHandover();
-        this.game = game;
+    /** Starts a fresh match at the blue setup phase. */
+    private void beginMatch() {
+        cancelBlackout();
+        game = null;
+        redSetup = null;
+        blueSetup = Setup.standard(Game.SIDE_ONE);
+        setup = blueSetup;
+        enterSetup();
+    }
+
+    private void enterSetup() {
+        phase = Phase.SETUP;
         selectedCell = -1;
         destinations = new int[0];
-        status.setText(Game.sideName(game.turn()) + " moves first.");
+        randomizeButton.setVisible(true);
+        readyButton.setVisible(true);
+        randomizeButton.setDisable(false);
+        readyButton.setDisable(false);
+        readyButton.setText(setup.side() == Game.SIDE_ONE ? "Ready — pass to Red" : "Start game");
+        status.setText(Game.sideName(setup.side())
+                + ": arrange your pieces. Click one of your squares, then another, to swap them.");
         refreshBoard();
     }
 
-    public Game game() {
-        return game;
+    private void randomizeSetup() {
+        if (phase != Phase.SETUP || blackout) {
+            return;
+        }
+        setup.randomize(random);
+        selectedCell = -1;
+        destinations = new int[0];
+        status.setText(Game.sideName(setup.side()) + " shuffled its army.");
+        refreshBoard();
+    }
+
+    /** Locks the current side in and passes the device, or starts play when both are ready. */
+    private void finishSetup() {
+        if (phase != Phase.SETUP || blackout) {
+            return;
+        }
+        if (setup.side() == Game.SIDE_ONE) {
+            startBlackout("Pass to Red", "Blue is ready. Pass the device.", () -> {
+                redSetup = Setup.standard(Game.SIDE_TWO);
+                setup = redSetup;
+                enterSetup();
+            });
+        } else {
+            Game started = new Game(blueSetup.config(), redSetup.config());
+            startBlackout("Pass to Blue", "Both armies are set. Pass the device.",
+                    () -> startPlay(started));
+        }
+    }
+
+    private void startPlay(Game started) {
+        phase = Phase.PLAY;
+        game = started;
+        setup = null;
+        selectedCell = -1;
+        destinations = new int[0];
+        randomizeButton.setVisible(false);
+        readyButton.setVisible(false);
+        status.setText(Game.sideName(game.turn()) + " to move.");
+        refreshBoard();
     }
 
     private void handleCellClick(int cell) {
-        if (game == null || game.isOver()) {
+        if (blackout) {
+            status.setText("Pass the device. " + blackoutRemaining + "s left.");
             return;
         }
-        if (handover) {
-            status.setText("Pass the device. " + Game.sideName(game.turn())
-                    + " moves in " + handoverRemaining + "s.");
-            return;
+        if (phase == Phase.SETUP) {
+            handleSetupClick(cell);
+        } else if (phase == Phase.PLAY) {
+            handlePlayClick(cell);
         }
+    }
+
+    private void handleSetupClick(int cell) {
         if (!Move.isLandCell(cell)) {
+            return;
+        }
+        if (setup.homeIndexOf(cell) < 0) {
+            status.setText("Pieces belong on " + Game.sideName(setup.side()) + "'s four rows.");
+            return;
+        }
+        if (selectedCell < 0) {
+            selectedCell = cell;
+            status.setText("Selected " + pieceName(setup.pieceAtCell(cell))
+                    + ". Click another of your squares to swap.");
+        } else if (cell == selectedCell) {
+            selectedCell = -1;
+            status.setText("Selection cleared.");
+        } else {
+            int first = setup.pieceAtCell(selectedCell);
+            int second = setup.pieceAtCell(cell);
+            setup.swap(selectedCell, cell);
+            selectedCell = -1;
+            status.setText("Swapped " + pieceName(first) + " and " + pieceName(second) + ".");
+        }
+        refreshBoard();
+    }
+
+    private void handlePlayClick(int cell) {
+        if (game == null || game.isOver() || !Move.isLandCell(cell)) {
             return;
         }
 
@@ -196,51 +285,16 @@ public final class Gui extends Application {
         }
         selectedCell = -1;
         destinations = new int[0];
-        status.setText(describe(outcome));
-        refreshBoard();
 
         if (game.isOver()) {
             status.setText(Game.sideName(game.winner()) + " wins after "
                     + game.moveCount() + " moves.");
-        } else {
-            startHandover();
-        }
-    }
-
-    /**
-     * Hidden hand-over window between turns: every rank is masked for a few
-     * seconds so the player who just moved cannot read the next player's pieces.
-     */
-    private void startHandover() {
-        cancelHandover();
-        handover = true;
-        handoverRemaining = HANDOVER_SECONDS;
-        selectedCell = -1;
-        destinations = new int[0];
-        status.setText(status.getText() + " Pass the device.");
-
-        handoverTimer = new Timeline(new KeyFrame(Duration.seconds(1), event -> {
-            handoverRemaining--;
             refreshBoard();
-        }));
-        handoverTimer.setCycleCount(HANDOVER_SECONDS);
-        handoverTimer.setOnFinished(event -> {
-            handover = false;
-            handoverTimer = null;
-            status.setText(Game.sideName(game.turn()) + " to move.");
-            refreshBoard();
-        });
-        handoverTimer.play();
-        refreshBoard();
-    }
-
-    private void cancelHandover() {
-        if (handoverTimer != null) {
-            handoverTimer.stop();
-            handoverTimer = null;
+            return;
         }
-        handover = false;
-        handoverRemaining = 0;
+        startBlackout("Pass to " + Game.sideName(game.turn()),
+                describe(outcome) + " Pass the device.",
+                () -> status.setText(Game.sideName(game.turn()) + " to move."));
     }
 
     private String describe(Game.MoveOutcome outcome) {
@@ -256,8 +310,51 @@ public final class Gui extends Application {
         };
     }
 
+    /**
+     * Masks every rank for a few seconds while the device changes hands, then
+     * runs the follow-up step.
+     */
+    private void startBlackout(String message, String statusText, Runnable afterwards) {
+        cancelBlackout();
+        blackout = true;
+        blackoutRemaining = HANDOVER_SECONDS;
+        blackoutMessage = message;
+        selectedCell = -1;
+        destinations = new int[0];
+        status.setText(statusText);
+        randomizeButton.setDisable(true);
+        readyButton.setDisable(true);
+
+        blackoutTimer = new Timeline(new KeyFrame(Duration.seconds(1), event -> {
+            blackoutRemaining--;
+            refreshBoard();
+        }));
+        blackoutTimer.setCycleCount(HANDOVER_SECONDS);
+        blackoutTimer.setOnFinished(event -> {
+            blackout = false;
+            blackoutTimer = null;
+            if (phase == Phase.SETUP) {
+                randomizeButton.setDisable(false);
+                readyButton.setDisable(false);
+            }
+            afterwards.run();
+            refreshBoard();
+        });
+        blackoutTimer.play();
+        refreshBoard();
+    }
+
+    private void cancelBlackout() {
+        if (blackoutTimer != null) {
+            blackoutTimer.stop();
+            blackoutTimer = null;
+        }
+        blackout = false;
+        blackoutRemaining = 0;
+    }
+
     private void refreshBoard() {
-        if (game == null) {
+        if (phase == null) {
             return;
         }
 
@@ -275,10 +372,10 @@ public final class Gui extends Application {
             }
 
             button.setDisable(false);
-            int piece = game.pieceAt(cell);
-            int owner = game.sideOf(cell);
+            int owner = ownerAt(cell);
+            int piece = pieceAt(cell);
             boolean visible = isVisible(owner);
-            button.setText(piece == Move.EMPTY ? "" : displayPiece(piece, visible));
+            button.setText(piece == Move.EMPTY ? "" : (visible ? rankLabel(piece) : "?"));
             button.setStyle(styleFor(backgroundFor(owner), "#ffffff"));
             button.setTooltip(piece == Move.EMPTY || !visible
                     ? null
@@ -292,10 +389,51 @@ public final class Gui extends Application {
             }
         }
 
-        if (handover) {
-            turnLabel.setText("Pass to " + Game.sideName(game.turn())
-                    + " — " + handoverRemaining + "s");
+        updateHeader();
+    }
+
+    private int ownerAt(int cell) {
+        if (phase == Phase.PLAY) {
+            return game.sideOf(cell);
+        }
+        if (blueSetup != null && blueSetup.homeIndexOf(cell) >= 0) {
+            return Game.SIDE_ONE;
+        }
+        if (redSetup != null && redSetup.homeIndexOf(cell) >= 0) {
+            return Game.SIDE_TWO;
+        }
+        return Game.NO_WINNER;
+    }
+
+    private int pieceAt(int cell) {
+        if (phase == Phase.PLAY) {
+            return game.pieceAt(cell);
+        }
+        if (blueSetup != null) {
+            int index = blueSetup.homeIndexOf(cell);
+            if (index >= 0) {
+                return blueSetup.pieceAtHome(index);
+            }
+        }
+        if (redSetup != null) {
+            int index = redSetup.homeIndexOf(cell);
+            if (index >= 0) {
+                return redSetup.pieceAtHome(index);
+            }
+        }
+        return Move.EMPTY;
+    }
+
+    private void updateHeader() {
+        if (blackout) {
+            turnLabel.setText(blackoutMessage + " — " + blackoutRemaining + "s");
             turnLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #36566e;");
+            return;
+        }
+        if (phase == Phase.SETUP) {
+            turnLabel.setText(Game.sideName(setup.side()) + ": setup");
+            turnLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: "
+                    + (setup.side() == Game.SIDE_ONE ? PLAYER_CELL : ENEMY_CELL) + ";");
             return;
         }
         if (game.isOver()) {
@@ -310,7 +448,13 @@ public final class Gui extends Application {
     }
 
     private boolean isVisible(int owner) {
-        return !handover && (revealRanks || game.isOver() || owner == game.turn());
+        if (blackout) {
+            return false;
+        }
+        if (phase == Phase.PLAY) {
+            return revealRanks || game.isOver() || owner == game.turn();
+        }
+        return revealRanks || owner == setup.side();
     }
 
     private String backgroundFor(int owner) {
@@ -318,10 +462,6 @@ public final class Gui extends Application {
             return PLAYER_CELL;
         }
         return owner == Game.SIDE_TWO ? ENEMY_CELL : EMPTY_CELL;
-    }
-
-    private String displayPiece(int piece, boolean visible) {
-        return visible ? rankLabel(piece) : "?";
     }
 
     /**

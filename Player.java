@@ -100,6 +100,11 @@ public final class Player {
 
     /** Shuffled army with the flag in the back row and bombs off the front row. */
     public static Player random(String name, Random random) {
+        return new Player(name, randomConfig(random));
+    }
+
+    /** Fresh shuffled army: flag in the back row, bombs off the front row. */
+    public static int[] randomConfig(Random random) {
         if (random == null) {
             throw new IllegalArgumentException("A random source is required");
         }
@@ -129,7 +134,7 @@ public final class Player {
             config[index] = pool.get(index);
         }
         config[CONFIG_SIZE - 1] = Move.FLAG;
-        return new Player(name, config);
+        return config;
     }
 
     public static Player random() {
