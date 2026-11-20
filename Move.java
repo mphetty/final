@@ -53,6 +53,11 @@ public final class Move {
         return isPlayablePiece(piece) && piece != BOMB && piece != FLAG;
     }
 
+    /** Scouts travel any distance along one row or column; every other piece steps once. */
+    public static boolean canMoveDistance(int piece) {
+        return piece == SCOUT;
+    }
+
     public static boolean isOrthogonalStep(int startCell, int endCell) {
         if (!isValidCell(startCell) || !isValidCell(endCell)) {
             return false;
@@ -62,15 +67,67 @@ public final class Move {
         return rowDistance + columnDistance == 1;
     }
 
+    public static boolean isOrthogonalLine(int startCell, int endCell) {
+        if (!isValidCell(startCell) || !isValidCell(endCell) || startCell == endCell) {
+            return false;
+        }
+        return startCell / COLUMN_COUNT == endCell / COLUMN_COUNT
+                || startCell % COLUMN_COUNT == endCell % COLUMN_COUNT;
+    }
+
+    /** True when every cell strictly between two cells is empty land. */
+    public static boolean isClearPath(int startCell, int endCell, int[] gameBoard) {
+        if (gameBoard == null || gameBoard.length != CELL_COUNT
+                || !isOrthogonalLine(startCell, endCell)) {
+            return false;
+        }
+        int rowStep = Integer.signum(endCell / COLUMN_COUNT - startCell / COLUMN_COUNT);
+        int columnStep = Integer.signum(endCell % COLUMN_COUNT - startCell % COLUMN_COUNT);
+        int row = startCell / COLUMN_COUNT + rowStep;
+        int column = startCell % COLUMN_COUNT + columnStep;
+        while (row != endCell / COLUMN_COUNT || column != endCell % COLUMN_COUNT) {
+            int cell = row * COLUMN_COUNT + column;
+            if (!isLandCell(cell) || gameBoard[cell] != EMPTY) {
+                return false;
+            }
+            row += rowStep;
+            column += columnStep;
+        }
+        return true;
+    }
+
     public static boolean isLegalMove(int startCell, int endCell, int[] gameBoard) {
         if (gameBoard == null || gameBoard.length != CELL_COUNT
                 || !isValidCell(startCell) || !isValidCell(endCell)
+                || startCell == endCell
                 || !isLandCell(startCell) || !isLandCell(endCell)
-                || !canMovePiece(gameBoard[startCell])
-                || !isOrthogonalStep(startCell, endCell)) {
+                || !canMovePiece(gameBoard[startCell])) {
+            return false;
+        }
+        boolean reachable = canMoveDistance(gameBoard[startCell])
+                ? isClearPath(startCell, endCell, gameBoard)
+                : isOrthogonalStep(startCell, endCell);
+        if (!reachable) {
             return false;
         }
         return gameBoard[endCell] == EMPTY || isPlayablePiece(gameBoard[endCell]);
+    }
+
+    /** Every cell the piece on {@code startCell} may legally move to or attack. */
+    public static int[] legalDestinations(int startCell, int[] gameBoard) {
+        if (gameBoard == null || gameBoard.length != CELL_COUNT
+                || !isValidCell(startCell) || !isLandCell(startCell)
+                || !canMovePiece(gameBoard[startCell])) {
+            return new int[0];
+        }
+        int[] buffer = new int[CELL_COUNT];
+        int count = 0;
+        for (int cell = 0; cell < CELL_COUNT; cell++) {
+            if (cell != startCell && isLandCell(cell) && isLegalMove(startCell, cell, gameBoard)) {
+                buffer[count++] = cell;
+            }
+        }
+        return Arrays.copyOf(buffer, count);
     }
 
     /**
